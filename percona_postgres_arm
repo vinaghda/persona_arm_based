@@ -1,0 +1,75 @@
+apt install gcc-aarch64-linux-gnu libc6-dev-arm64-cross
+apt install libc6-dev
+
+mkdir -p ~/go/src/github.com/percona/
+cd $_
+git clone https://github.com/percona/pmm-admin.git
+git clone https://github.com/percona/pmm-agent.git
+git clone https://github.com/percona/node_exporter.git
+git clone https://github.com/percona/postgres_exporter.git
+
+curl -LO https://github.com/VictoriaMetrics/VictoriaMetrics/releases/download/v1.59.0/vmutils-arm-v1.59.0.tar.gz
+tar xzf vmutils-arm-v1.59.0.tar.gz
+
+cd /tmp/
+wget http://percona.com/get/pt-summary
+wget http://percona.com/get/pt-pg-summary
+wget https://go.dev/dl/go1.22.7.linux-arm64.tar.gz
+tar -C /usr/local -xzf go1.22.7.linux-arm64.tar.gz
+export PATH=$PATH:/usr/local/go/bin
+go version
+
+cd ~/go/src/github.com/percona/pmm-admin
+make release
+
+cd ~/go/src/github.com/percona/pmm-agent
+make release
+
+cd ~/go/src/github.com/percona/node_exporter/
+make build
+
+cd ~/go/src/github.com/percona/postgres_exporter/
+make build
+
+cd ~/go/src/github.com/percona/
+cp pmm-admin/bin/pmm-admin /usr/local/bin
+cp pmm-agent/bin/pmm-agent /usr/local/bin
+cp pmm-admin/bin/pmm-admin /usr/local/percona/pmm2/bin
+cp pmm-agent/bin/pmm-agent /usr/local/percona/pmm2/bin
+
+mkdir -p /usr/local/percona/pmm2/exporters/
+mkdir -p /usr/local/percona/pmm2/tools/
+cp node_exporter/node_exporter /usr/local/percona/pmm2/exporters/
+cp postgres_exporter/postgres_exporter /usr/local/percona/pmm2/exporters/
+cp /tmp/vmagent-prod /usr/local/percona/pmm2/exporters/vmagent
+cp /tmp/pt-summary /usr/local/percona/pmm2/tools/
+cp /tmp/pt-pg-summary /usr/local/percona/pmm2/tools/
+ls
+
+cd /usr/local/percona/pmm2/
+mkdir -p collectors/textfile-collector/high-resolution
+mkdir -p collectors/textfile-collector/medium-resolution
+mkdir -p collectors/textfile-collector/low-resolution
+
+mkdir -p /usr/local/percona/pmm2/config/
+
+PMM_CLIENT_ADDR='172.30.0.17'
+PMM_SERVER_ADDR='percona_dashboard.test.com:443'
+NODE_NAME='aws_arm_1'
+USER_NAME_PMM='percona'
+PASSWORD_PMM='password'
+USER_NAME_DB='postgres'
+PASSWORD_DB='password'
+
+
+pmm-agent setup ${PMM_CLIENT_ADDR} generic ${NODE_NAME} \
+  --config-file=/usr/local/percona/pmm2/config/pmm-agent.yaml \
+  --server-address=${PMM_SERVER_ADDR} --server-insecure-tls \
+  --server-username=${USER_NAME_PMM} --server-password=${PASSWORD_PMM}
+
+pmm-agent --config-file=/usr/local/percona/pmm2/config/pmm-agent.yaml > /tmp/pmm_agent.log &
+
+pmm-admin add postgresql --username=${USER_NAME_DB} --password=${PASSWORD_DB} \
+  --server-address=${PMM_SERVER_ADDR} --server-insecure-tls \
+  --server-username=${USER_NAME_PMM} --server-password=${PASSWORD_PMM}
+  --comments-parsing="off" --host=${PMM_CLIENT_ADDR}
